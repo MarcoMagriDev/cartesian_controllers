@@ -210,8 +210,6 @@ protected:
                           const rclcpp::Time & time = rclcpp::Time(0),
                           const std::chrono::duration<double> & timeout = std::chrono::seconds(1));
 
-  KDL::Frame endEffectorTransform();
-
   std::map<std::string, KDL::Frame> known_transforms_;
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;

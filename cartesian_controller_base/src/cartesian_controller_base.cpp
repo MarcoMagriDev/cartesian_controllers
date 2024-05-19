@@ -212,7 +212,13 @@ CartesianControllerBase::on_configure(const rclcpp_lifecycle::State & previous_s
     RCLCPP_ERROR(get_node()->get_logger(), error.c_str());
     return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::ERROR;
   }
-  m_end_effector_transform = getTransform(m_default_end_effector_link, m_end_effector_link);
+  if (m_default_end_effector_link != m_end_effector_link)
+  {
+    m_end_effector_transform = getTransform(m_default_end_effector_link, m_end_effector_link);
+    KDL::Segment end_effector_segment(m_end_effector_link, KDL::Joint(KDL::Joint::None),
+                                      m_end_effector_transform);
+    m_robot_chain.addSegment(end_effector_segment);
+  }
 
   // Get names of actuated joints
   m_joint_names = get_node()->get_parameter("joints").as_string_array();
@@ -577,14 +583,6 @@ KDL::Frame CartesianControllerBase::getTransform(const std::string & target_fram
                  target_frame.c_str(), ex.what());
     throw std::runtime_error("Transform lookup failed.");
   }
-}
-
-KDL::Frame CartesianControllerBase::endEffectorTransform()
-{
-  KDL::Frame default_end_effector_transform;
-  m_forward_kinematics_solver->JntToCart(
-    m_ik_solver->getPositions(), default_end_effector_transform, m_default_end_effector_link);
-  return default_end_effector_transform * m_end_effector_transform;
 }
 
 }  // namespace cartesian_controller_base

@@ -178,7 +178,7 @@ ctrl::Vector6D CartesianForceController::computeForceError()
 #if defined CARTESIAN_CONTROLLERS_GALACTIC || defined CARTESIAN_CONTROLLERS_HUMBLE || \
   defined CARTESIAN_CONTROLLERS_IRON
   return Base::displayInLink(m_ft_sensor_wrench,
-                             Base::endEffectorTransform() * m_ft_sensor_transform) +
+                             Base::m_ik_solver->getEndEffectorPose() * m_ft_sensor_transform) +
          target_wrench;
 #elif defined CARTESIAN_CONTROLLERS_FOXY
   return m_ft_sensor_wrench + target_wrench;

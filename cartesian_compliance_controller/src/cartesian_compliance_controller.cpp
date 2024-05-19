@@ -192,7 +192,7 @@ ctrl::Vector6D CartesianComplianceController::computeComplianceError()
 
     // Spring force in base orientation
     Base::displayInLink(m_stiffness,
-                        Base::endEffectorTransform() * m_compliance_ref_link_transform) *
+                        Base::m_ik_solver->getEndEffectorPose() * m_compliance_ref_link_transform) *
       MotionBase::computeMotionError()
 
     // Sensor and target force in base orientation
