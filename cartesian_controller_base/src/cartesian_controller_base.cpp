@@ -97,6 +97,7 @@ CartesianControllerBase::on_init()
     auto_declare<std::string>("robot_description", "");
     auto_declare<std::string>("robot_base_link", "");
     auto_declare<std::string>("end_effector_link", "");
+    auto_declare<std::string>("default_end_effector_link", "");
     auto_declare<std::vector<std::string>>("joints", std::vector<std::string>());
     auto_declare<std::vector<std::string>>("command_interfaces", std::vector<std::string>());
     auto_declare<double>("solver.error_scale", 1.0);
@@ -123,6 +124,7 @@ controller_interface::return_type CartesianControllerBase::init(const std::strin
     auto_declare<std::string>("robot_description", "");
     auto_declare<std::string>("robot_base_link", "");
     auto_declare<std::string>("end_effector_link", "");
+    auto_declare<std::string>("default_end_effector_link", "");
     auto_declare<std::vector<std::string>>("joints", std::vector<std::string>());
     auto_declare<std::vector<std::string>>("command_interfaces", std::vector<std::string>());
     auto_declare<double>("solver.error_scale", 1.0);
@@ -142,6 +144,9 @@ CartesianControllerBase::on_configure(const rclcpp_lifecycle::State & previous_s
   {
     return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
   }
+
+  tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_node()->get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
   // Load user specified inverse kinematics solver
   std::string ik_solver = get_node()->get_parameter("ik_solver").as_string();
@@ -179,6 +184,13 @@ CartesianControllerBase::on_configure(const rclcpp_lifecycle::State & previous_s
     RCLCPP_ERROR(get_node()->get_logger(), "end_effector_link is empty");
     return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::ERROR;
   }
+  m_default_end_effector_link = get_node()->get_parameter("default_end_effector_link").as_string();
+  if (m_default_end_effector_link.empty())
+  {
+    m_default_end_effector_link = m_end_effector_link;
+    RCLCPP_WARN(get_node()->get_logger(),
+                "default_end_effector_link is empty assuming equal to end_effector_link");
+  }
 
   // Build a kinematic chain of the robot
   if (!robot_model.initString(m_robot_description))
@@ -191,7 +203,7 @@ CartesianControllerBase::on_configure(const rclcpp_lifecycle::State & previous_s
     RCLCPP_ERROR(get_node()->get_logger(), "Failed to parse KDL tree from urdf model");
     return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::ERROR;
   }
-  if (!robot_tree.getChain(m_robot_base_link, m_end_effector_link, m_robot_chain))
+  if (!robot_tree.getChain(m_robot_base_link, m_default_end_effector_link, m_robot_chain))
   {
     const std::string error =
       ""
@@ -200,6 +212,7 @@ CartesianControllerBase::on_configure(const rclcpp_lifecycle::State & previous_s
     RCLCPP_ERROR(get_node()->get_logger(), error.c_str());
     return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::ERROR;
   }
+  m_end_effector_transform = getTransform(m_default_end_effector_link, m_end_effector_link);
 
   // Get names of actuated joints
   m_joint_names = get_node()->get_parameter("joints").as_string_array();
@@ -430,6 +443,14 @@ void CartesianControllerBase::computeJointControlCmds(const ctrl::Vector6D & err
 ctrl::Vector6D CartesianControllerBase::displayInBaseLink(const ctrl::Vector6D & vector,
                                                           const std::string & from)
 {
+  KDL::Frame transform_kdl;
+  m_forward_kinematics_solver->JntToCart(m_ik_solver->getPositions(), transform_kdl, from);
+  return displayInLink(vector, transform_kdl);
+}
+
+ctrl::Vector6D CartesianControllerBase::displayInLink(const ctrl::Vector6D & vector,
+                                                      const KDL::Frame & transform)
+{
   // Adjust format
   KDL::Wrench wrench_kdl;
   for (int i = 0; i < 6; ++i)
@@ -437,11 +458,8 @@ ctrl::Vector6D CartesianControllerBase::displayInBaseLink(const ctrl::Vector6D &
     wrench_kdl(i) = vector[i];
   }
 
-  KDL::Frame transform_kdl;
-  m_forward_kinematics_solver->JntToCart(m_ik_solver->getPositions(), transform_kdl, from);
-
   // Rotate into new reference frame
-  wrench_kdl = transform_kdl.M * wrench_kdl;
+  wrench_kdl = transform.M * wrench_kdl;
 
   // Reassign
   ctrl::Vector6D out;
@@ -459,11 +477,17 @@ ctrl::Matrix6D CartesianControllerBase::displayInBaseLink(const ctrl::Matrix6D &
   // Get rotation to base
   KDL::Frame R_kdl;
   m_forward_kinematics_solver->JntToCart(m_ik_solver->getPositions(), R_kdl, from);
+  return displayInLink(tensor, R_kdl);
+}
 
+ctrl::Matrix6D CartesianControllerBase::displayInLink(const ctrl::Matrix6D & tensor,
+                                                      const KDL::Frame & transform)
+{
   // Adjust format
   ctrl::Matrix3D R;
-  R << R_kdl.M.data[0], R_kdl.M.data[1], R_kdl.M.data[2], R_kdl.M.data[3], R_kdl.M.data[4],
-    R_kdl.M.data[5], R_kdl.M.data[6], R_kdl.M.data[7], R_kdl.M.data[8];
+  R << transform.M.data[0], transform.M.data[1], transform.M.data[2], transform.M.data[3],
+    transform.M.data[4], transform.M.data[5], transform.M.data[6], transform.M.data[7],
+    transform.M.data[8];
 
   // Treat diagonal blocks as individual 2nd rank tensors.
   // Display in base frame.
@@ -535,6 +559,32 @@ void CartesianControllerBase::publishStateFeedback()
 
     m_feedback_twist_publisher->unlockAndPublish();
   }
+}
+
+KDL::Frame CartesianControllerBase::getTransform(const std::string & target_frame,
+                                                 const std::string & source_frame,
+                                                 const rclcpp::Time & time,
+                                                 const std::chrono::duration<double> & timeout)
+{
+  try
+  {
+    return tf2::transformToKDL(
+      tf_buffer_->lookupTransform(target_frame, source_frame, time, timeout));
+  }
+  catch (tf2::TransformException & ex)
+  {
+    RCLCPP_ERROR(get_node()->get_logger(), "Could not transform %s to %s: %s", source_frame.c_str(),
+                 target_frame.c_str(), ex.what());
+    throw std::runtime_error("Transform lookup failed.");
+  }
+}
+
+KDL::Frame CartesianControllerBase::endEffectorTransform()
+{
+  KDL::Frame default_end_effector_transform;
+  m_forward_kinematics_solver->JntToCart(
+    m_ik_solver->getPositions(), default_end_effector_transform, m_default_end_effector_link);
+  return default_end_effector_transform * m_end_effector_transform;
 }
 
 }  // namespace cartesian_controller_base

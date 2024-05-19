@@ -93,14 +93,10 @@ CartesianForceController::on_configure(const rclcpp_lifecycle::State & previous_
     return ret;
   }
 
-  // Make sure sensor link is part of the robot chain
   m_ft_sensor_ref_link = get_node()->get_parameter("ft_sensor_ref_link").as_string();
-  if (!Base::robotChainContains(m_ft_sensor_ref_link))
+  if (m_ft_sensor_ref_link.empty())
   {
-    RCLCPP_ERROR_STREAM(get_node()->get_logger(), m_ft_sensor_ref_link
-                                                    << " is not part of the kinematic chain from "
-                                                    << Base::m_robot_base_link << " to "
-                                                    << Base::m_end_effector_link);
+    RCLCPP_ERROR(get_node()->get_logger(), "ft_sensor_ref_link is empty");
     return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::ERROR;
   }
 
@@ -181,7 +177,9 @@ ctrl::Vector6D CartesianForceController::computeForceError()
   // Superimpose target wrench and sensor wrench in base frame
 #if defined CARTESIAN_CONTROLLERS_GALACTIC || defined CARTESIAN_CONTROLLERS_HUMBLE || \
   defined CARTESIAN_CONTROLLERS_IRON
-  return Base::displayInBaseLink(m_ft_sensor_wrench, m_new_ft_sensor_ref) + target_wrench;
+  return Base::displayInLink(m_ft_sensor_wrench,
+                             Base::endEffectorTransform() * m_ft_sensor_transform) +
+         target_wrench;
 #elif defined CARTESIAN_CONTROLLERS_FOXY
   return m_ft_sensor_wrench + target_wrench;
 #endif
@@ -192,18 +190,7 @@ void CartesianForceController::setFtSensorReferenceFrame(const std::string & new
   // Compute static transform from the force torque sensor to the new reference
   // frame of interest.
   m_new_ft_sensor_ref = new_ref;
-
-  // Joint positions should cancel out, i.e. it doesn't matter as long as they
-  // are the same for both transformations.
-  KDL::JntArray jnts(Base::m_ik_solver->getPositions());
-
-  KDL::Frame sensor_ref;
-  Base::m_forward_kinematics_solver->JntToCart(jnts, sensor_ref, m_ft_sensor_ref_link);
-
-  KDL::Frame new_sensor_ref;
-  Base::m_forward_kinematics_solver->JntToCart(jnts, new_sensor_ref, m_new_ft_sensor_ref);
-
-  m_ft_sensor_transform = new_sensor_ref.Inverse() * sensor_ref;
+  m_ft_sensor_transform = getTransform(m_new_ft_sensor_ref, m_ft_sensor_ref_link);
 }
 
 void CartesianForceController::targetWrenchCallback(

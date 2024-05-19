@@ -17,6 +17,8 @@
   <depend>trajectory_msgs</depend>
   <depend>pluginlib</depend>
   <depend>realtime_tools</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_kdl</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

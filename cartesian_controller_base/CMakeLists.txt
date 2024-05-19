@@ -35,6 +35,8 @@ find_package(trajectory_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(urdf REQUIRED)
 find_package(realtime_tools REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_kdl REQUIRED)
 
 
 # Convenience variable for dependencies
@@ -46,6 +48,8 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
         urdf
         Eigen3
         realtime_tools
+        tf2_ros
+        tf2_kdl
 )
 
 ament_export_dependencies(

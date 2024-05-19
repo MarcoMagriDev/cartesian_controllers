@@ -44,6 +44,8 @@
 #include <cartesian_controller_base/SpatialPDController.h>
 #include <cartesian_controller_base/Utility.h>
 #include <realtime_tools/realtime_publisher.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 #include <controller_interface/controller_interface.hpp>
 #include <functional>
@@ -57,6 +59,7 @@
 #include <pluginlib/class_loader.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <string>
+#include <tf2_kdl/tf2_kdl.hpp>
 #include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 #include <vector>
 
@@ -139,11 +142,31 @@ protected:
      * @brief Display the given tensor in the robot base frame
      *
      * @param tensor The quantity to transform
+     * @param transform The kdl transformation
+     *
+     * @return The quantity in the robot base frame
+     */
+  ctrl::Vector6D displayInLink(const ctrl::Vector6D & vector, const KDL::Frame & transform);
+
+  /**
+     * @brief Display the given tensor in the robot base frame
+     *
+     * @param tensor The quantity to transform
      * @param from The reference frame where the quantity was formulated
      *
      * @return The quantity in the robot base frame
      */
   ctrl::Matrix6D displayInBaseLink(const ctrl::Matrix6D & tensor, const std::string & from);
+
+  /**
+     * @brief Display the given tensor in the robot base frame
+     *
+     * @param tensor The quantity to transform
+     * @param transform The kdl transformation
+     *
+     * @return The quantity in the robot base frame
+     */
+  ctrl::Matrix6D displayInLink(const ctrl::Matrix6D & tensor, const KDL::Frame & transform);
 
   /**
      * @brief Display a given vector in a new reference frame
@@ -183,6 +206,16 @@ protected:
    */
   bool isActive() const { return m_active; };
 
+  KDL::Frame getTransform(const std::string & target_frame, const std::string & source_frame,
+                          const rclcpp::Time & time = rclcpp::Time(0),
+                          const std::chrono::duration<double> & timeout = std::chrono::seconds(1));
+
+  KDL::Frame endEffectorTransform();
+
+  std::map<std::string, KDL::Frame> known_transforms_;
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+
   KDL::Chain m_robot_chain;
 
   std::shared_ptr<KDL::TreeFkSolverPos_recursive> m_forward_kinematics_solver;
@@ -194,9 +227,12 @@ protected:
   std::shared_ptr<IKSolver> m_ik_solver;
 
   // Dynamic parameters
+  std::string m_default_end_effector_link;
   std::string m_end_effector_link;
   std::string m_robot_base_link;
   int m_iterations;
+
+  KDL::Frame m_end_effector_transform;
 
   std::vector<std::reference_wrapper<hardware_interface::LoanedStateInterface>>
     m_joint_state_pos_handles;
