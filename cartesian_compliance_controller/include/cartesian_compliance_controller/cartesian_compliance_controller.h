@@ -113,6 +113,7 @@ private:
 
   ctrl::Matrix6D m_stiffness;
   std::string m_compliance_ref_link;
+  KDL::Frame m_compliance_ref_link_transform;
 };
 
 }  // namespace cartesian_compliance_controller

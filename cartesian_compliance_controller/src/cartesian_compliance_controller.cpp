@@ -105,17 +105,15 @@ CartesianComplianceController::on_configure(const rclcpp_lifecycle::State & prev
 
   // Make sure compliance link is part of the robot chain
   m_compliance_ref_link = get_node()->get_parameter("compliance_ref_link").as_string();
-  if (!Base::robotChainContains(m_compliance_ref_link))
+  if (m_compliance_ref_link.empty())
   {
-    RCLCPP_ERROR_STREAM(get_node()->get_logger(), m_compliance_ref_link
-                                                    << " is not part of the kinematic chain from "
-                                                    << Base::m_robot_base_link << " to "
-                                                    << Base::m_end_effector_link);
+    RCLCPP_ERROR(get_node()->get_logger(), "compliance_ref_link is empty");
     return TYPE::ERROR;
   }
 
   // Make sure sensor wrenches are interpreted correctly
   ForceBase::setFtSensorReferenceFrame(m_compliance_ref_link);
+  m_compliance_ref_link_transform = getTransform(Base::m_end_effector_link, m_compliance_ref_link);
 
   return TYPE::SUCCESS;
 }
@@ -193,7 +191,9 @@ ctrl::Vector6D CartesianComplianceController::computeComplianceError()
   ctrl::Vector6D net_force =
 
     // Spring force in base orientation
-    Base::displayInBaseLink(m_stiffness, m_compliance_ref_link) * MotionBase::computeMotionError()
+    Base::displayInLink(m_stiffness,
+                        Base::endEffectorTransform() * m_compliance_ref_link_transform) *
+      MotionBase::computeMotionError()
 
     // Sensor and target force in base orientation
     + ForceBase::computeForceError();
